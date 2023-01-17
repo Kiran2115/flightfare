@@ -9,6 +9,8 @@ from sklearn.linear_model import ElasticNet
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import json
 from get_data import get_data, read_params
+import mlflow 
+from urllib.parse import urlparse
 
 
 def train_model(config_path):
@@ -25,42 +27,68 @@ def train_model(config_path):
 
 
 
-            #print('X and Y are created')
-            if list(config['estimators'].keys())[0] == 'ElasticNet':
-                    model = ElasticNet(alpha=config['estimators']['ElasticNet']['params']['alpha'],
+            mlflow_config = config['mlflow_config']
+
+            remote_server_uri = mlflow_config['remote_server_uri']
+
+            mlflow.set_tracking_uri(remote_server_uri)
+
+            mlflow.set_experiment(mlflow_config['experiment_name'])
+
+            with mlflow.start_run(run_name=mlflow_config['run_name']) as mlops_run:
+
+                       
+
+                lr = ElasticNet(alpha=config['estimators']['ElasticNet']['params']['alpha'],
+
                                         l1_ratio = config['estimators']['ElasticNet']['params']['l1_ratio'], random_state = config['base']['random_state'] )
 
-                    model.fit(X,Y)
-                    filename = f"{config['model_dir']}/{list(config['estimators'].keys())[0]}_model.sav"
-                    joblib.dump(model, filename)
-
-                    #params_json = model.get_params()
-                    params_json = {
-                        'alpha': config['estimators']['ElasticNet']['params']['alpha'],
-                        'l1_ratio': config['estimators']['ElasticNet']['params']['l1_ratio']
-                    }
-                    with open(config['reports']['params'], "w") as outfile:
-                                      json.dump(params_json, outfile)
-
-                    test_pred = model.predict(test_X)
-                    mae = mean_absolute_error(test_pred,test_Y)
-                    mse = mean_squared_error(test_pred,test_Y)
-                    rmse = np.sqrt(mse)
-                    r2score = r2_score(test_Y,test_pred)
-
-                    scores_dict = {'mean_squared_error':mse,'mean_absolute_error':mae,'root_mean_squared_error':rmse,'r2_score':r2score}
-
-                    with open(config['reports']['scores'], "w") as outfile2:
-                                      json.dump(scores_dict, outfile2)
 
 
-                    print('Model saved in the models folder')
-                    return train_model
+                lr.fit(X,Y)
 
-            else:
-                   print("You haven't configured those models") 
-                   return train_model
+                test_pred = lr.predict(test_X)
 
+
+
+                mae = mean_absolute_error(test_pred,test_Y)
+
+                mse = mean_squared_error(test_pred,test_Y)
+
+                r2score = r2_score(test_pred,test_Y)
+
+                rmse = np.sqrt(mse)
+
+
+
+                mlflow.log_param("alpha",config['estimators']['ElasticNet']['params']['alpha'])
+
+                mlflow.log_param("l1_ratio",config['estimators']['ElasticNet']['params']['l1_ratio'])
+
+
+
+
+                mlflow.log_metric("rmse",rmse)
+
+                mlflow.log_metric("mae",mae)
+
+                mlflow.log_metric("r2",r2score)
+
+
+
+                tracking_url_type_store = urlparse(mlflow.get_artifact_uri()).scheme
+
+
+
+                if tracking_url_type_store != "file":
+
+                         mlflow.sklearn.log_model(lr,"model",registered_model_name = mlflow_config['registered_model_name'])
+
+
+
+                else:
+
+                         mlflow.sklearn.load_model(lr,"model")
                           
 
 
